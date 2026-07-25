@@ -48,6 +48,15 @@ export default async function StatusPage({ params }: { params: Promise<{ token: 
         </ol>
       </div>
 
+      {session.status === "report_ready" && (
+        <a
+          href={`/report/${token}`}
+          className="mt-6 inline-flex min-h-[52px] items-center justify-center rounded-xl bg-accent px-6 text-lg font-semibold text-white"
+        >
+          See your 3 best options
+        </a>
+      )}
+
       <p className="mt-8 text-center text-xs text-slate-400">Status: {session.status}</p>
     </main>
   );
