@@ -1,0 +1,16 @@
+{
+  "name": "clearlane",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "db:migrate": "node scripts/db/migrate.mjs",
+    "db:seed": "node scripts/db/seed.mjs",
+    "db:diagram": "node scripts/db/diagram.mjs",
+    "db:reset": "node scripts/db/migrate.mjs --reset && node scripts/db/seed.mjs"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "pg": "^8.13.1"
+  }
+}
