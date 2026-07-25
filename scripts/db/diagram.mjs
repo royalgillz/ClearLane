@@ -1,4 +1,4 @@
-import { newClient } from "./pool.mjs";
+import { execSql, closeExec } from "./exec.mjs";
 
 // introspect the live db and print an ascii schema diagram. reflects what actually
 // got migrated, not a hand-drawn picture that can drift.
@@ -17,30 +17,30 @@ function typeLabel(col) {
 }
 
 async function main() {
-  const client = newClient();
-  await client.connect();
   try {
-    const cols = (await client.query(`
-      select table_name, column_name, data_type, udt_name, is_nullable, column_default
-      from information_schema.columns
-      where table_schema = 'public' and table_name = any($1)
-      order by table_name, ordinal_position
-    `, [TABLE_ORDER])).rows;
+    const order = TABLE_ORDER.map((t) => `'${t}'`).join(",");
 
-    const pks = (await client.query(`
+    const cols = await execSql(`
+      select table_name, column_name, data_type, udt_name, is_nullable
+      from information_schema.columns
+      where table_schema = 'public' and table_name in (${order})
+      order by table_name, ordinal_position
+    `);
+
+    const pks = await execSql(`
       select tc.table_name, kcu.column_name
       from information_schema.table_constraints tc
       join information_schema.key_column_usage kcu on kcu.constraint_name = tc.constraint_name
       where tc.constraint_type = 'PRIMARY KEY' and tc.table_schema = 'public'
-    `)).rows;
+    `);
 
-    const fks = (await client.query(`
+    const fks = await execSql(`
       select tc.table_name, kcu.column_name, ccu.table_name as ref_table
       from information_schema.table_constraints tc
       join information_schema.key_column_usage kcu on kcu.constraint_name = tc.constraint_name
       join information_schema.constraint_column_usage ccu on ccu.constraint_name = tc.constraint_name
       where tc.constraint_type = 'FOREIGN KEY' and tc.table_schema = 'public'
-    `)).rows;
+    `);
 
     const pkSet = new Set(pks.map((r) => `${r.table_name}.${r.column_name}`));
     const fkMap = new Map(fks.map((r) => [`${r.table_name}.${r.column_name}`, r.ref_table]));
@@ -70,16 +70,15 @@ async function main() {
     }
 
     console.log(`\n${line}\nrelationships\n${line}`);
-    for (const r of fks) {
-      console.log(`  ${r.table_name}.${r.column_name}  ->  ${r.ref_table}.id`);
-    }
+    for (const r of fks) console.log(`  ${r.table_name}.${r.column_name}  ->  ${r.ref_table}.id`);
     console.log("");
   } finally {
-    await client.end();
+    await closeExec();
   }
 }
 
-main().catch((err) => {
+main().catch(async (err) => {
   console.error(err.message);
+  await closeExec();
   process.exit(1);
 });
