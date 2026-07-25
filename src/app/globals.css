@@ -1,0 +1,21 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+}
+
+body {
+  /* system stack, no external font fetch (the proxy makes google fonts flaky) */
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+  color: #0f172a;
+  background: #f8fafc;
+}
