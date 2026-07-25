@@ -2,7 +2,64 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import { formatBusinessHours } from "@/lib/hours";
 import { getCallProvider, type CallRequest } from "@/lib/voice";
 import { assertSafeToolInput } from "@/lib/voice/denylist";
-import { extractFromTranscript } from "@/lib/voice/extract";
+import { extractFromTranscript, type CallExtraction } from "@/lib/voice/extract";
+
+// provider + coverage shapes we read off the db rows (loose, they come from supabase-js)
+type ProviderRow = { name: string; phone: string | null; email: string | null; business_hours: unknown; timezone: string };
+type CoverageRow = { want_gap: boolean };
+
+// turn an extraction into the honest quote fields. this is where provenance and the quote
+// reference are decided, shared by a fresh call and a re-extract so they can never diverge.
+export function quoteFieldsFromExtraction(real: boolean, provider: ProviderRow, coverage: CoverageRow, ex: CallExtraction) {
+  const gotRef = !!ex.quoteReference;
+
+  let provenance: "verified_on_call" | "agent_stated" | "simulated";
+  let quoteReference: string | null;
+  if (!real) {
+    provenance = "simulated";
+    quoteReference = simRef(provider.name); // never the extracted real-looking ref
+  } else {
+    provenance = gotRef ? "verified_on_call" : "agent_stated";
+    quoteReference = ex.quoteReference;
+  }
+
+  const outcome: "success" | "partial" = ex.premiumMonthly != null && (real ? gotRef : true) ? "success" : "partial";
+  const monthly = ex.premiumMonthly;
+  const annual = ex.premiumAnnual ?? (monthly != null ? Math.round(monthly * 12 * 0.96) : null);
+  const contactFirst = ex.contactName?.split(" ")[0] ?? "the agent";
+  const refForScript = quoteReference ?? "your quote";
+
+  const endorsements: string[] = [];
+  if (coverage.want_gap) endorsements.push("Gap coverage");
+  if (ex.rideshareIncluded) endorsements.push("Rideshare / delivery endorsement");
+
+  const days = ex.expiresInDays ?? 30;
+  const expiresAt = new Date(Date.now() + days * 24 * 3600 * 1000).toISOString().slice(0, 10);
+
+  return {
+    provenance,
+    outcome,
+    quote_reference: quoteReference,
+    monthly_premium: monthly,
+    annual_premium: annual,
+    coverage_summary: {
+      liability: "50k/100k/10k", pip: "$250k medical", ppi: "$1M property protection (included)",
+      carrier: ex.carrier, rideshare_endorsement: ex.rideshareIncluded, gap: coverage.want_gap,
+    },
+    endorsements,
+    rideshare_endorsement_included: ex.rideshareIncluded,
+    discounts_applied: ex.discountsApplied,
+    discounts_available: ex.discountsAvailable,
+    contact_phone: provider.phone,
+    contact_business_hours: formatBusinessHours(provider.business_hours as never, provider.timezone),
+    contact_email: ex.contactEmail ?? provider.email,
+    contact_name: ex.contactName,
+    producer_license: ex.producerLicense,
+    what_to_say: `Ask for ${contactFirst} and reference ${refForScript}.`,
+    expires_at: expiresAt,
+    transcript_evidence: ex.quoteReferenceEvidence,
+  };
+}
 
 // resolve one phone call job: place the call, extract the outcome with claude, and persist
 // a call row plus a quote row. honesty is enforced here, not hoped for:
@@ -82,63 +139,15 @@ export async function resolveCallJob(job: CallJob) {
   const callId = call!.id;
 
   const ex = await extractFromTranscript(result.transcript);
-  const gotRef = !!ex.quoteReference;
-
-  // provenance and reference honesty
-  let provenance: "verified_on_call" | "agent_stated" | "simulated";
-  let quoteReference: string | null;
-  if (!result.real) {
-    provenance = "simulated";
-    quoteReference = simRef(provider.name); // never the extracted real-looking ref
-  } else {
-    provenance = gotRef ? "verified_on_call" : "agent_stated";
-    quoteReference = ex.quoteReference;
-  }
-
-  const outcome: "success" | "partial" = ex.premiumMonthly != null && (result.real ? gotRef : true) ? "success" : "partial";
-
-  const monthly = ex.premiumMonthly;
-  const annual = ex.premiumAnnual ?? (monthly != null ? Math.round(monthly * 12 * 0.96) : null);
-  const contactFirst = ex.contactName?.split(" ")[0] ?? "the agent";
-  const refForScript = quoteReference ?? "your quote";
-
-  const endorsements: string[] = [];
-  if (coverage.want_gap) endorsements.push("Gap coverage");
-  if (ex.rideshareIncluded) endorsements.push("Rideshare / delivery endorsement");
-
-  const expiresAt = ex.expiresInDays
-    ? new Date(Date.now() + ex.expiresInDays * 24 * 3600 * 1000).toISOString().slice(0, 10)
-    : new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+  const fields = quoteFieldsFromExtraction(result.real, provider, coverage, ex);
 
   const { data: quote } = await db
     .from("quotes")
-    .insert({
-      session_id: job.session_id, provider_id: job.provider_id,
-      provenance, outcome,
-      quote_reference: quoteReference,
-      monthly_premium: monthly, annual_premium: annual,
-      coverage_summary: {
-        liability: "50k/100k/10k", pip: "$250k medical", ppi: "$1M property protection (included)",
-        carrier: ex.carrier, rideshare_endorsement: ex.rideshareIncluded, gap: coverage.want_gap,
-      },
-      endorsements,
-      rideshare_endorsement_included: ex.rideshareIncluded,
-      discounts_applied: ex.discountsApplied,
-      discounts_available: ex.discountsAvailable,
-      contact_phone: provider.phone,
-      contact_business_hours: formatBusinessHours(provider.business_hours, provider.timezone),
-      contact_email: ex.contactEmail ?? provider.email,
-      contact_name: ex.contactName,
-      producer_license: ex.producerLicense,
-      what_to_say: `Ask for ${contactFirst} and reference ${refForScript}.`,
-      expires_at: expiresAt,
-      source_call_id: callId,
-      transcript_evidence: ex.quoteReferenceEvidence,
-    })
+    .insert({ session_id: job.session_id, provider_id: job.provider_id, source_call_id: callId, ...fields })
     .select("id")
     .single();
 
-  await db.from("call_jobs").update({ status: outcome === "success" ? "succeeded" : "partial" }).eq("id", job.id);
+  await db.from("call_jobs").update({ status: fields.outcome === "success" ? "succeeded" : "partial" }).eq("id", job.id);
 
-  return { callId, outcome, quoteId: quote?.id, provenance, quoteReference, monthly };
+  return { callId, outcome: fields.outcome, quoteId: quote?.id, provenance: fields.provenance, quoteReference: fields.quote_reference, monthly: fields.monthly_premium };
 }
