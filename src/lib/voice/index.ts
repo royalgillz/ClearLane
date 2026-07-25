@@ -12,6 +12,7 @@ export function getCallProvider(): CallProvider {
     return new VapiCallProvider(key, phoneNumberId, {
       provider: process.env.VOICE_LLM_PROVIDER,
       model: process.env.VOICE_LLM_MODEL,
+      voiceProvider: process.env.VOICE_PROVIDER,
       voiceId: process.env.VOICE_ID,
     });
   }
