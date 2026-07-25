@@ -102,6 +102,10 @@ export function renderReportHtml(m: ReportModel): string {
          ${m.gapSection.closedBy.length ? `<div style="color:#166534;font-size:14px;font-weight:700;margin-top:8px">Closed by: ${esc(m.gapSection.closedBy.join(", "))}</div>` : ""}
        </td></tr></table>` : "";
 
+  // applies to every option, verified included. a quote reference proves an indicative
+  // quote exists, the final price still moves after underwriting.
+  const indicative = `<div style="color:#475569;font-size:12px;line-height:18px;margin-top:8px"><strong>These quotes are indicative and subject to underwriting.</strong> Your final price can change after a motor vehicle record, C.L.U.E. claims history, and credit check.</div>`;
+
   const anySim = m.options.some((o) => o.provenance === "simulated");
   const honesty = anySim
     ? `<div style="color:#64748b;font-size:12px;line-height:18px;margin-top:8px">Options marked SIMULATED use realistic filed-rate data for the demo, not live bindable quotes. The phone call, the VIN decode, and this email are real. In production the mocked feed becomes real through a licensed agency partner.</div>` : "";
@@ -125,7 +129,7 @@ export function renderReportHtml(m: ReportModel): string {
         </td></tr>
         <tr><td>${gap}</td></tr>
         <tr><td>${m.options.map((o, i) => optionCard(o, i + 1)).join("")}</td></tr>
-        <tr><td style="padding:8px 4px 24px">${honesty}
+        <tr><td style="padding:8px 4px 24px">${indicative}${honesty}
           <div style="color:#94a3b8;font-size:12px;margin-top:10px">We never ask for your SSN, license number, or payment info to get a quote.</div>
         </td></tr>
       </table>
