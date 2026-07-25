@@ -1,10 +1,20 @@
 import type { CallProvider } from "./types";
 import { SimulatedCallProvider } from "./simulated-provider";
+import { VapiCallProvider } from "./vapi-provider";
 
-// vapi gets wired once the account and a verified outbound number exist. until then every
-// call runs through the simulated provider, which is honest by construction (result.real
-// is false, so the quote is stamped simulated).
+// use the real vapi provider when the account, an imported number, and a destination are
+// all set. otherwise fall back to the honest simulated path so nothing downstream blocks.
 export function getCallProvider(): CallProvider {
+  const key = process.env.VAPI_API_KEY;
+  const phoneNumberId = process.env.VAPI_PHONE_NUMBER_ID;
+  const broker = process.env.BROKER_PHONE_NUMBER;
+  if (key && phoneNumberId && broker) {
+    return new VapiCallProvider(key, phoneNumberId, {
+      provider: process.env.VOICE_LLM_PROVIDER,
+      model: process.env.VOICE_LLM_MODEL,
+      voiceId: process.env.VOICE_ID,
+    });
+  }
   return new SimulatedCallProvider();
 }
 

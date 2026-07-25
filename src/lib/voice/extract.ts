@@ -31,7 +31,7 @@ premiumAnnual (number or null, dollars per year, null if not stated),
 rideshareIncluded (boolean, true only if a rideshare or delivery endorsement was confirmed as included),
 discountsApplied (array of short strings actually applied to the quote),
 discountsAvailable (array of short strings mentioned as available but not applied),
-quoteReference (string or null, the exact quote reference number the broker gave, normalized, for example MI-4471-8823),
+quoteReference (string or null, the quote reference the broker gave. brokers often read it out as separate characters like "M I 4 4 7 1" or "1 2 3 4 5", normalize it to MI-4471 or 12345),
 quoteReferenceEvidence (string or null, the single sentence from the transcript that contains the quote reference number, verbatim),
 contactName (string or null, the human the agent reached),
 contactEmail (string or null),
@@ -62,8 +62,14 @@ export async function extractFromTranscript(transcript: string): Promise<CallExt
     throw new Error(`anthropic ${res.status}: ${await res.text()}`);
   }
 
-  const data = (await res.json()) as { content?: { text?: string }[] };
-  const text = data.content?.[0]?.text ?? "";
+  // claude-sonnet-5 emits a thinking block before the text block, so grab every text
+  // block, not just content[0].
+  const data = (await res.json()) as { content?: { type?: string; text?: string }[] };
+  const text = (data.content ?? [])
+    .filter((b) => b.type === "text" && b.text)
+    .map((b) => b.text)
+    .join("")
+    .trim();
   const json = text.replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
 
   try {
