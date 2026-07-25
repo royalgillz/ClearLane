@@ -9,11 +9,17 @@ export function getCallProvider(): CallProvider {
   const phoneNumberId = process.env.VAPI_PHONE_NUMBER_ID;
   const broker = process.env.BROKER_PHONE_NUMBER;
   if (key && phoneNumberId && broker) {
+    // empty env vars (the .env.example placeholders) must read as unset, otherwise "" slips
+    // past the ?? defaults and breaks the call config.
+    const set = (v: string | undefined) => (v && v.trim() ? v.trim() : undefined);
+    // naturalness first: use elevenlabs when a key is available, else a warm cartesia voice.
+    // VOICE_PROVIDER / VOICE_ID override so we can a/b any voice from env on a single call.
+    const voiceProvider = set(process.env.VOICE_PROVIDER) ?? (set(process.env.ELEVENLABS_API_KEY) ? "11labs" : "cartesia");
     return new VapiCallProvider(key, phoneNumberId, {
-      provider: process.env.VOICE_LLM_PROVIDER,
-      model: process.env.VOICE_LLM_MODEL,
-      voiceProvider: process.env.VOICE_PROVIDER,
-      voiceId: process.env.VOICE_ID,
+      provider: set(process.env.VOICE_LLM_PROVIDER),
+      model: set(process.env.VOICE_LLM_MODEL),
+      voiceProvider,
+      voiceId: set(process.env.VOICE_ID),
     });
   }
   return new SimulatedCallProvider();

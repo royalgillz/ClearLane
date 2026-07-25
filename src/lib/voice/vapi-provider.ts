@@ -13,6 +13,8 @@ function systemPrompt(req: CallRequest): string {
   const gig = b.gigPlatforms.join(" and ") || "rideshare and delivery";
   return `You are an automated assistant calling an insurance broker on behalf of ${b.driverName} to get an auto insurance quote. Keep it natural and brief, this is a phone call. Speak one short turn at a time and let the broker respond.
 
+Sound like a real person, not a script. Use contractions. Keep sentences short. Open most replies with a quick natural acknowledgment ("sure", "okay", "got it", "let me see") before the substance, so pauses feel human. Never list things robotically.
+
 Driver facts you may state (only these):
 - Name: ${b.driverName}, ZIP ${b.zip}, Detroit Michigan
 - Vehicle: ${b.vehicle}, financed
@@ -41,6 +43,22 @@ type VapiCall = {
   endedReason?: string;
   artifact?: { transcript?: string; recordingUrl?: string; messages?: VapiMessage[]; performanceMetrics?: { turnLatencies?: TurnLatency[] } };
 };
+
+// naturalness first, latency second. the first cartesia voice read robotic and a synthetic
+// voice invalidates the whole pitch. this picks a warmer default and lets any provider be
+// selected from env (VOICE_PROVIDER / VOICE_ID) so we can a/b on one call, no code change.
+// elevenlabs flash is the most natural, it activates automatically when the key is present.
+function buildVoice(provider: string | undefined, voiceId: string | undefined) {
+  const p = (provider || "cartesia").toLowerCase();
+  if (p === "11labs" || p === "elevenlabs") {
+    return { provider: "11labs", model: "eleven_flash_v2_5", voiceId: voiceId || "21m00Tcm4TlvDq8ikWAM" };
+  }
+  if (p === "vapi") {
+    return { provider: "vapi", voiceId: voiceId || "Elliot" };
+  }
+  // cartesia sonic-2, a warmer conversational voice than the first pick
+  return { provider: "cartesia", model: "sonic-2", voiceId: voiceId || "a0e99841-438c-4a64-b679-ae501e7d6091" };
+}
 
 async function api(path: string, init: RequestInit, key: string) {
   const res = await fetch(`${VAPI_BASE}${path}`, {
@@ -123,13 +141,7 @@ export class VapiCallProvider implements CallProvider {
               messages: [{ role: "system", content: systemPrompt(req) }],
             },
             transcriber: { provider: "deepgram", model: "nova-2", language: "en" },
-            // cartesia sonic advertises 40-60ms first audio, vs the ~1000ms voiceLatency
-            // the default voice cost us. this is the single biggest latency lever.
-            voice: {
-              provider: this.opts.voiceProvider ?? "cartesia",
-              voiceId: this.opts.voiceId ?? "248be419-c632-4f23-adf1-5324ed7dbf1d",
-              ...(this.opts.voiceProvider === "vapi" ? {} : { model: "sonic-2" }),
-            },
+            voice: buildVoice(this.opts.voiceProvider, this.opts.voiceId),
           },
         }),
       },
