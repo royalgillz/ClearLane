@@ -6,7 +6,41 @@ import { extractFromTranscript, type CallExtraction } from "@/lib/voice/extract"
 
 // provider + coverage shapes we read off the db rows (loose, they come from supabase-js)
 type ProviderRow = { name: string; phone: string | null; email: string | null; business_hours: unknown; timezone: string };
-type CoverageRow = { want_gap: boolean };
+type CoverageRow = {
+  want_gap: boolean;
+  want_rideshare_endorsement?: boolean;
+  bi_per_person?: number;
+  bi_per_accident?: number;
+  property_damage?: number;
+  pip_tier?: string;
+  deductible_comp?: number;
+  deductible_coll?: number;
+};
+
+const PIP_LABEL: Record<string, string> = {
+  unlimited: "Unlimited medical", "500k": "$500k medical", "250k": "$250k medical",
+  "50k_medicaid": "$50k medical (Medicaid)", optout: "PIP opt-out",
+};
+const k = (n?: number) => `${Math.round((n ?? 0) / 1000)}k`;
+
+// build the coverage line from the driver's real selections, not a michigan-shaped constant.
+// the previous hardcode was correct for marcus and wrong for everyone else.
+function liabilityStr(c: CoverageRow): string {
+  return `${k(c.bi_per_person)}/${k(c.bi_per_accident)}/${k(c.property_damage)}`;
+}
+function pipStr(c: CoverageRow): string {
+  return PIP_LABEL[c.pip_tier ?? "250k"] ?? "$250k medical";
+}
+export function coverageAskFrom(c: CoverageRow): string {
+  const parts = [
+    `full coverage, ${liabilityStr(c)} liability`,
+    `PIP ${pipStr(c)}`,
+    `$${c.deductible_comp ?? 500} and $${c.deductible_coll ?? 500} deductibles`,
+  ];
+  if (c.want_gap) parts.push("gap");
+  if (c.want_rideshare_endorsement) parts.push("rideshare endorsement");
+  return parts.join(", ");
+}
 
 // turn an extraction into the honest quote fields. this is where provenance and the quote
 // reference are decided, shared by a fresh call and a re-extract so they can never diverge.
@@ -43,7 +77,7 @@ export function quoteFieldsFromExtraction(real: boolean, provider: ProviderRow, 
     monthly_premium: monthly,
     annual_premium: annual,
     coverage_summary: {
-      liability: "50k/100k/10k", pip: "$250k medical", ppi: "$1M property protection (included)",
+      liability: liabilityStr(coverage), pip: pipStr(coverage), ppi: "$1M property protection (included)",
       carrier: ex.carrier, rideshare_endorsement: ex.rideshareIncluded, gap: coverage.want_gap,
     },
     endorsements,
@@ -102,7 +136,7 @@ export async function resolveCallJob(job: CallJob) {
       cleanRecord: driver.accidents_3yr === 0 && driver.violations_3yr === 0,
       gigPlatforms: driver.gig_platforms ?? [],
       wantsRideshareEndorsement: coverage.want_rideshare_endorsement,
-      coverageAsk: "full coverage, MI 50/100/10, PIP 250k, $500 deductibles, gap, rideshare endorsement",
+      coverageAsk: coverageAskFrom(coverage),
     },
   };
   // the brief is built from safe fields, but check anyway per VOICE-SAFE-005

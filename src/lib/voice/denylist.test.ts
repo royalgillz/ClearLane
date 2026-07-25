@@ -6,6 +6,8 @@ import { scanForDenied, assertSafeSpeech, assertSafeToolInput } from "./denylist
 test("flags a social security number", () => {
   assert.deepEqual(scanForDenied("his ssn is 123-45-6789"), ["ssn"]);
   assert.deepEqual(scanForDenied("social security number 123456789"), ["ssn"]);
+  // asr often space-separates the digits, still an ssn
+  assert.deepEqual(scanForDenied("his social security is 123 45 6789"), ["ssn"]);
 });
 
 // @spec VOICE-SAFE-002

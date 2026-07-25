@@ -7,8 +7,10 @@
 export type DeniedCategory = "ssn" | "license" | "payment";
 
 const SSN_FORMATTED = /\b\d{3}-\d{2}-\d{4}\b/;
-const SSN_CONTEXT = /\b(ssn|social security)\b/i;
-const NINE_DIGITS = /\d{9,}/;
+// ssn context followed by 9 digits, tolerant of the spaces or dashes that asr inserts
+// ("social security is 123 45 6789"). spoken-word digits ("one two three") are a known
+// gap we do not try to parse here.
+const SSN_CONTEXT_NUM = /\b(ssn|social security)\b[^0-9]{0,20}(?:\d[ -]?){9}/i;
 
 // "license"/"dl" followed (loosely) by an alphanumeric token that contains a digit. the
 // digit requirement keeps "license status valid" from tripping it.
@@ -22,7 +24,7 @@ const CARD_RUN = /(?:\d[ -]?){13,19}\b/;
 export function scanForDenied(text: string): DeniedCategory[] {
   const found: DeniedCategory[] = [];
 
-  if (SSN_FORMATTED.test(text) || (SSN_CONTEXT.test(text) && NINE_DIGITS.test(text))) {
+  if (SSN_FORMATTED.test(text) || SSN_CONTEXT_NUM.test(text)) {
     found.push("ssn");
   }
   if (LICENSE.test(text)) found.push("license");
